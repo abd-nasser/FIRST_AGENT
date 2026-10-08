@@ -13,7 +13,7 @@ from datetime import datetime # Pour horodater les commandes
 
 
 '''
-ETAPE défénir les models de données
+ETAPE 2 défénir les models de données
 '''
 
 class Livreur(BaseModel):
@@ -21,6 +21,7 @@ class Livreur(BaseModel):
     id: int = Field(description='Identifiant unique du livreur') #La description est crucial plus tu decris bien , mieux le LLM comprend
     nom_complet: str = Field(description="Nom complet du livreur")
     ville: str = Field(description="Ville ou opère le livreur")
+    zone : str = Field(description='Zone ou quartier couvert')
     telephone: str = Field(description="Numéro de telephone")
     disponible: bool = Field(default=True, description="Statut de disponibilité")
     type_vehicule: str = Field(default="moto", description="type de vehicule")
@@ -41,4 +42,90 @@ class ResultatLivraison(BaseModel):
     livreur: Optional[Livreur] = Field(default=None, description='le Livreur Trouvé')
     message: str = Field(description="message de confirmation ou d'erreur")
     timestamp: datetime = Field(default_factory=datetime.now, description="Horodatage")
+    
+"""
+ETAPE 3 les dépendances (Deps)
+    on definie ce que l'agent à besoin pour fonctionner : une "session qui contient la base 
+    de livreurs
+"""
+
+class AppSession(BaseModel):
+    """Dépendances injectées dans l'agent."""
+    livreurs : List[Livreur] = Field(default_factory=list, description="Liste des livreurs disponibles")
+    demande_livraison : List[DemandeLivraison] = Field(default_factory=list, description="la liste des demandes de livraison")
+    notification_envoyees : List[str] = Field(default_factory=list, description="Historique des notifications")
+    
+
+"""
+    ETAPE 4 creer l'agent  
+"""
+
+agent = Agent(
+    "openai:qwen2.5:7b",
+    deps_type= AppSession,
+    output_type=ResultatLivraison,
+    system_prompt=(
+        "Tu est 'Livre_SAMA' un assistant pour une plateforme de livraison."
+        "Ton rôle est de trouver un livreur disponible dans le zone demandée,"
+        "de le contacter, et de renvoyer un resultat structuré."
+        "Utilise toujours les outils à ta disposition."
+    ),
+    
+    
+)
+
+
+""" 
+ETAPE 5 LES OUTILS (TOOLS)
+on donne l'agent des fonction qu'il peut appeler 
+"""
+
+#outils 1 cherche un livreur
+@agent.tool
+def chercher_livreur(ctx: RunContext[AppSession], ville: str, zone: str ) -> List[Livreur]:
+    """
+    cherche un livreur disponible dans la ville ou zone données.
+    retourne une liste de livreurs correspondants
+    """
+    resultats =  [
+        l for l in ctx.deps.livreurs 
+        if l.ville.lower() == ville.lower() 
+        and l.zone.lower() == zone.lower()
+        and l.disponible
+        
+        
+    ]
+    return resultats
+
+
+#Outil 2 contacter livreur
+@agent.tool
+def contacter_livreur(ctx: RunContext[AppSession], livreur_id: int, message: str) -> str:
+    """ 
+    Contacte un livreur par son ID pour lui proposer une livraison.
+    Retourne un message de confirmation
+    """
+    
+    livreur = next( (l for l in ctx.deps.livreurs if l.id == livreur_id), None)
+    
+    if not livreur:
+        return f"Livreur avec ID {livreur_id} introuvable"
+    
+    notification =  f"[{datetime.now()} SMS à {livreur.nom_complet} ({livreur.telephone}): {message}]"
+    ctx.deps.notification_envoyees.append(notification)
+    
+    return f'Livreur{livreur.nom_complet} contacté avec succès'
+
+##Outil 3 contacter livreurMarquer un livreur comme indisponible
+@agent.tool
+def marquer_indisponible(ctx: RunContext[AppSession], livreur_id: int) -> str:
+    
+    livreur = next((l for l in ctx.deps.livreurs if l.id == livreur_id ),None)
+    if not livreur:
+        return f"Livreur {livreur_id} introuvable"
+    livreur.disponible = False
+    return f'Livreur{livreur.nom_complet} marqué comme indisponible'
+
+
+   
 
