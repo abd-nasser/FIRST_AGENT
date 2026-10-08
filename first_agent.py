@@ -19,7 +19,7 @@ ETAPE défénir les models de données
 class Livreur(BaseModel):
     """ represente un livreur dans le système """
     id: int = Field(description='Identifiant unique du livreur') #La description est crucial plus tu decris bien , mieux le LLM comprend
-    nom_compelt: str = Field(description="Nom complet du livreur")
+    nom_complet: str = Field(description="Nom complet du livreur")
     ville: str = Field(description="Ville ou opère le livreur")
     telephone: str = Field(description="Numéro de telephone")
     disponible: bool = Field(default=True, description="Statut de disponibilité")
