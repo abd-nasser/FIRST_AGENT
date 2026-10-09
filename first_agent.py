@@ -60,6 +60,8 @@ class AppSession(BaseModel):
     ETAPE 4 creer l'agent  
 """
 
+load_dotenv()
+
 agent = Agent(
     "openai:qwen2.5:7b",
     deps_type= AppSession,
@@ -68,6 +70,7 @@ agent = Agent(
         "Tu est 'Livre_SAMA' un assistant pour une plateforme de livraison."
         "Ton rôle est de trouver un livreur disponible dans le zone demandée,"
         "de le contacter, et de renvoyer un resultat structuré."
+        "en suite marque le livreur que tu à trouvé et contacté indisponible"
         "Utilise toujours les outils à ta disposition."
     ),
     
@@ -126,6 +129,43 @@ def marquer_indisponible(ctx: RunContext[AppSession], livreur_id: int) -> str:
     livreur.disponible = False
     return f'Livreur{livreur.nom_complet} marqué comme indisponible'
 
+
+if __name__ == "__main__":
+     # Création de quelques livreurs de test
+    livreurs_test = [
+        Livreur(id=1, nom_complet="Moussa", ville="Ouagadougou", zone="Zone du Bois", telephone="70 00 00 01"),
+        Livreur(id=2, nom_complet="Fatou", ville="Ouagadougou", zone="Zone du Bois", telephone="70 00 00 02"),
+        Livreur(id=3, nom_complet="Ibrahim", ville="Ouagadougou", zone="Gounghin", telephone="70 00 00 03"),
+        Livreur(id=4, nom_complet="Awa", ville="Bobo-Dioulasso", zone="Secteur 1", telephone="70 00 00 04"),
+    ]
+    
+    session = AppSession(livreurs=livreurs_test)
+    
+     # Demande de livraison
+    demande = (
+        "Bonjour, je m'appelle Alice. J'ai un colis fragile à livrer "
+        "dans la Zone du Bois à Ouagadougou. C'est assez urgent. "
+        "Trouve-moi un livreur disponible et contacte-le."
+    )
+    
+    
+    resultat = agent.run_sync(demande, deps=session)
+    
+    print('=' * 50)
+    print("RESULTAT de l'AGENT")
+    print('=' * 50)
+    print(f'succès:{resultat.output.success}')
+    print (f'Message:{resultat.output.message}')  
+    if resultat.output.livreur:
+        print(f"Livreur : {resultat.output.livreur.nom_complet} ({resultat.output.livreur.telephone}) ")
+    print(f"Timestamp: {resultat.output.timestamp}")
+    
+    print('=' * 50)
+    print("NOTIFICATIONS ENVOYEES")
+    for notif in session.notification_envoyees:
+        print(f'- {notif}')
+      
+    
 
    
 
