@@ -8,7 +8,7 @@ from pydantic import (BaseModel ,#Creer des structures de données
                       Field #pour ajouter des descriptions et validations
                       )
 from pydantic_ai import Agent, RunContext #Les deux classe principales de pydanticAI
-from typing import List, Optional #pour typer les listes et les champs optionnel 
+from typing import List, Optional , Literal#pour typer les listes et les champs optionnel 
 from datetime import datetime # Pour horodater les commandes
 
 
@@ -33,6 +33,8 @@ class DemandeLivraison(BaseModel):
     zone: str = Field(description="Zone ou quartier prise en charge")
     type_de_colis: str = Field(description="Type de colis : documents, colis, fragile, volumineux")
     poids_kg: float = Field(description="Poids approximatif en kg")
+    livreur: Optional[Livreur] = Field(default=None, description='le Livreur Trouvé')
+    status: Literal["en_attente", "accepter", "refuser"] = Field(default="en_attente", description="détermine le status de la demande de livraison")
     urgence: bool = Field( default=False, description="Livraison urgente ou nom") 
     
     
@@ -67,12 +69,14 @@ agent = Agent(
     deps_type= AppSession,
     output_type=ResultatLivraison,
     system_prompt=(
-        "Tu est 'Livre_SAMA' un assistant pour une plateforme de livraison."
-        "Ton rôle est de trouver un livreur disponible dans le zone demandée,"
-        "de le contacter, et de renvoyer un resultat structuré."
-        "en suite marque le livreur que tu à trouvé et contacté indisponible"
-        "Utilise toujours les outils à ta disposition."
-    ),
+    "Tu es 'Livre_SAMA', un assistant pour une plateforme de livraison. "
+    "Ton rôle est de : "
+    "1. Trouver un livreur disponible dans la zone demandée. "
+    "2. Le contacter pour lui proposer la livraison. "
+    "3. Le marquer comme indisponible après acceptation. "
+    "4. Créer une demande de livraison en base de données. "
+    "Utilise toujours les outils à ta disposition."
+),
     
     
 )
@@ -130,6 +134,57 @@ def marquer_indisponible(ctx: RunContext[AppSession], livreur_id: int) -> str:
     return f'Livreur{livreur.nom_complet} marqué comme indisponible'
 
 
+## Outils 4 creer la demande
+@agent.tool
+def creer_demande_livraison(
+    ctx: RunContext[AppSession],
+    ville: str,
+    zone: str,
+    livreur_id: Optional[int] = None,
+    client_nom: Optional[str] = None,
+    type_de_colis: Optional[str] = None,
+    poids_kg: Optional[float] = None,
+) -> str:
+    """
+    Crée une demande de livraison en base de données.
+    Si un livreur est disponible, la demande est acceptée.
+    Sinon, elle reste en attente.
+    """
+    # 1. Chercher le livreur
+    livreur = None
+    if livreur_id is not None:
+        livreur = next(
+            (l for l in ctx.deps.livreurs if l.id == livreur_id and l.disponible),
+            None
+        )
+    
+    # 2. Déterminer le statut
+    if livreur is None:
+        status = "en_attente"
+        message = "Demande de livraison en attente : aucun livreur disponible."
+    else:
+        status = "accepter"
+        message = f"Demande créée avec le livreur {livreur.nom}."
+    
+    # 3. Créer la demande
+    demande_livraison = DemandeLivraison(
+        client_nom=client_nom or "Non fourni",
+        ville=ville.lower(),
+        zone=zone.lower(),
+        type_de_colis=type_de_colis or "Non spécifié",
+        poids_kg=poids_kg if poids_kg is not None else 1.0,
+        livreur=livreur,
+        status=status,
+    )
+    
+    # 4. Sauvegarder (simulation)
+    ctx.deps.demandes.append(demande_livraison)
+    
+    return message
+       
+    
+
+
 if __name__ == "__main__":
      # Création de quelques livreurs de test
     livreurs_test = [
@@ -164,6 +219,11 @@ if __name__ == "__main__":
     print("NOTIFICATIONS ENVOYEES")
     for notif in session.notification_envoyees:
         print(f'- {notif}')
+        
+    print('=' * 50)
+    for dmd in session.demande_livraison:
+        print(f" demande de livraison pour client -{dmd.client_nom if dmd.client_nom else "pas de nom"} - status= {dmd.status}")
+    
       
     
 
